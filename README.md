@@ -1,6 +1,6 @@
 # OpenAI + Cartesia Test
 
-A quick AI STT-LLM-TTS pipeline test
+A quick AI STT > LLM> TTS pipeline test
 
 ### Install
 
