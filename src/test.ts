@@ -129,7 +129,7 @@ async function time<T>(label: string, fn: () => Promise<T>) {
 
 const startTime = Date.now();
 
-const text = await time("TTS", async () => {
+const text = await time("SST", async () => {
   const audioBuffer = await fs.promises.readFile(path.join(dataDir, "in.wav"));
   return await stt(audioBuffer);
 });
