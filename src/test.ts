@@ -59,7 +59,7 @@ async function llm(text: string) {
 async function tts(text: string) {
   const websocket = cartesia.tts.websocket({
     container: "raw",
-    encoding: "pcm_f32le",
+    encoding: "pcm_s16le",
     sampleRate: 44100,
   });
   const response = await websocket.send({
@@ -70,17 +70,24 @@ async function tts(text: string) {
     },
     transcript: text,
   });
-  const chunks: string[] = [];
+  const chunks: Buffer[] = [];
   for await (const message of response.events("message")) {
     const json = JSON.parse(message);
     switch (json.type) {
       case "chunk":
-        chunks.push(json.data);
+        chunks.push(Buffer.from(json.data, "base64"));
         break;
     }
   }
-  const pcm = Uint8Array.from(chunks.map(atob).map((bin) => new Uint8Array([...bin].map((c) => c.charCodeAt(0)))));
-  return Buffer.from(await pcmToWav(pcm).arrayBuffer());
+  return Buffer.from(await pcmToWav(Buffer.concat(chunks), 44100, 1).arrayBuffer());
+}
+
+async function time<T>(label: string, fn: () => Promise<T>) {
+  let result;
+  const startTime = Date.now();
+  result = await fn();
+  console.log(label, Date.now() - startTime);
+  return result;
 }
 
 function pcmToWav(pcmBytes: Uint8Array<ArrayBuffer>, sampleRate = 16000, numChannels = 1) {
@@ -117,14 +124,6 @@ function pcmToWav(pcmBytes: Uint8Array<ArrayBuffer>, sampleRate = 16000, numChan
   view.setUint32(offset, wavDataSize, true);
   new Uint8Array(buffer, 44).set(pcmBytes);
   return new Blob([buffer], { type: "audio/wav" });
-}
-
-async function time<T>(label: string, fn: () => Promise<T>) {
-  let result;
-  const startTime = Date.now();
-  result = await fn();
-  console.log(label, Date.now() - startTime);
-  return result;
 }
 
 const startTime = Date.now();
