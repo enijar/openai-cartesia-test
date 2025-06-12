@@ -7,6 +7,8 @@ import config from "~/config.js";
 const openai = new OpenAI({ apiKey: config.openaiKey });
 const cartesia = new CartesiaClient({ apiKey: config.cartesiaKey });
 
+const dataDir = path.join(import.meta.dirname, "..", "data");
+
 function stt(audioBuffer: Buffer<ArrayBufferLike>) {
   return new Promise<string>(async (resolve) => {
     const socket = cartesia.stt.websocket({
@@ -128,7 +130,7 @@ async function time<T>(label: string, fn: () => Promise<T>) {
 const startTime = Date.now();
 
 const text = await time("TTS", async () => {
-  const audioBuffer = await fs.promises.readFile(path.join(import.meta.dirname, "..", "in.wav"));
+  const audioBuffer = await fs.promises.readFile(path.join(dataDir, "in.wav"));
   return await stt(audioBuffer);
 });
 
@@ -140,7 +142,7 @@ const audio = await time("TTS", async () => {
   return await tts(response);
 });
 
-await fs.promises.writeFile(path.join(import.meta.dirname, "..", "out.wav"), audio);
+await fs.promises.writeFile(path.join(dataDir, "out.wav"), audio);
 
 console.log("Execution time", Date.now() - startTime);
 
