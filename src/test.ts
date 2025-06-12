@@ -9,26 +9,32 @@ const cartesia = new CartesiaClient({ apiKey: config.cartesiaKey });
 
 const dataDir = path.join(import.meta.dirname, "..", "data");
 
+const sttWebsocket = cartesia.stt.websocket({
+  model: "ink-whisper",
+  language: "en",
+  encoding: "pcm_s16le",
+  sampleRate: 16000,
+});
+
+const ttsWebsocket = cartesia.tts.websocket({
+  container: "raw",
+  encoding: "pcm_s16le",
+  sampleRate: 44100,
+});
+
 function stt(audioBuffer: Buffer<ArrayBufferLike>) {
   return new Promise<string>(async (resolve) => {
-    const socket = cartesia.stt.websocket({
-      model: "ink-whisper",
-      language: "en",
-      encoding: "pcm_s16le",
-      sampleRate: 16000,
-    });
     const parts: string[] = [];
-    await socket.onMessage(async (message) => {
+    await sttWebsocket.onMessage(async (message) => {
       switch (message.type) {
         case "transcript":
           parts.push(message.text ?? "");
           break;
         case "flush_done":
-          await socket.done();
+          await sttWebsocket.done();
           break;
         case "done":
           resolve(parts.join("").trim());
-          await socket.done();
           break;
       }
     });
@@ -36,9 +42,9 @@ function stt(audioBuffer: Buffer<ArrayBufferLike>) {
     for (let i = 0; i < audioBuffer.length; i += chunkSize) {
       const chunk = audioBuffer.subarray(i, i + chunkSize);
       const arrayBuffer = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
-      await socket.send(arrayBuffer as ArrayBuffer);
+      await sttWebsocket.send(arrayBuffer as ArrayBuffer);
     }
-    await socket.finalize();
+    await sttWebsocket.finalize();
   });
 }
 
@@ -57,12 +63,7 @@ async function llm(text: string) {
 }
 
 async function tts(text: string) {
-  const websocket = cartesia.tts.websocket({
-    container: "raw",
-    encoding: "pcm_s16le",
-    sampleRate: 44100,
-  });
-  const response = await websocket.send({
+  const response = await ttsWebsocket.send({
     modelId: "sonic-2",
     voice: {
       mode: "id",
