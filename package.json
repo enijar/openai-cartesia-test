@@ -1,0 +1,24 @@
+{
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "tsx src/test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.18",
+    "dotenv": "16.5.0",
+    "ts-node": "10.9.2",
+    "tsc-alias": "1.8.16",
+    "tsx": "4.19.4",
+    "typescript": "5.8.3"
+  },
+  "dependencies": {
+    "@cartesia/cartesia-js": "2.2.4",
+    "openai": "5.3.0",
+    "zod": "3.24.4"
+  },
+  "engines": {
+    "node": ">=23",
+    "npm": ">=10"
+  }
+}
