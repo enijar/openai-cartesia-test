@@ -5,9 +5,15 @@ A quick AI STT > LLM> TTS pipeline test
 ### Install
 
 ```shell
-cp .env.example .env
+cp server/.env.example server/.env
 npm install
-npm test
+npm start
+```
+
+### Server Test
+
+```shell
+npm --prefix server test
 ```
 
 Expected output:
