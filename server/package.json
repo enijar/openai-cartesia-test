@@ -2,8 +2,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "tsx --watch src/index.ts",
-    "test": "tsx src/test.ts"
+    "start": "tsx --watch src/index.ts"
   },
   "devDependencies": {
     "@types/node": "22.15.18",

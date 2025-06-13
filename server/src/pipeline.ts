@@ -1,6 +1,7 @@
 import { OpenAI } from "openai";
 import { ResponseInput } from "openai/resources/responses/responses";
 import { CartesiaClient } from "@cartesia/cartesia-js";
+import type { WSContext } from "hono/ws";
 import config from "~/config.js";
 
 export default class Pipeline {
@@ -97,36 +98,7 @@ export default class Pipeline {
     return response.output_text;
   }
 
-  async tts(text: string) {
-    const startTime = Date.now();
-    let gotFirstChunk = false;
-    const response = await this.ttsSocket.send({
-      modelId: "sonic-2",
-      voice: {
-        mode: "id",
-        id: "a0e99841-438c-4a64-b679-ae501e7d6091",
-      },
-      transcript: text,
-    });
-    const chunks: Buffer[] = [];
-    for await (const message of response.events("message")) {
-      const json = JSON.parse(message);
-      switch (json.type) {
-        case "chunk":
-          if (!gotFirstChunk) {
-            gotFirstChunk = true;
-            console.log("tts first chunk:", Date.now() - startTime);
-          }
-          const pcm = Buffer.from(json.data, "base64");
-          chunks.push(pcm);
-          break;
-      }
-    }
-    console.log("tts:", Date.now() - startTime);
-    return Buffer.from(await this.pcmToWav(Buffer.concat(chunks), 44100, 1).arrayBuffer());
-  }
-
-  async ttsStream(text: string, ws: any) {
+  async tts(text: string, ws: WSContext<WebSocket>) {
     const startTime = Date.now();
     const response = await this.ttsSocket.send({
       modelId: "sonic-2",

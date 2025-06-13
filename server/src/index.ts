@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import Pipeline from "~/pipeline.js";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -11,15 +9,13 @@ const app = new Hono();
 app.use(cors());
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
-const dataDir = path.join(import.meta.dirname, "..", "data");
-
 app.get(
   "/ws",
   upgradeWebSocket(() => {
     const pipeline = new Pipeline();
     return {
-      onOpen(event, ws) {
-        console.log("WebSocket connection opened", event);
+      onOpen() {
+        console.log("WebSocket connection opened");
       },
       async onMessage(event, ws) {
         const startTime = Date.now();
@@ -27,13 +23,14 @@ app.get(
         const base64Audio = Buffer.from(arrayBuffer);
         const text = await pipeline.stt(base64Audio);
         const response = await pipeline.llm(text);
-        await pipeline.ttsStream(response, ws);
+        await pipeline.tts(response, ws);
         console.log("Execution time", Date.now() - startTime);
       },
       onClose(event, ws) {
         console.log("WebSocket connection closed", event);
       },
-      onError(event, ws) {
+      onError(event) {
+        // todo: handle error
         console.error("WebSocket error", event);
       },
     };
