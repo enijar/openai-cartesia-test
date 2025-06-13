@@ -6,12 +6,14 @@ const env = z
   .object({
     OPENAI_KEY: z.string().nonempty(),
     CARTESIA_KEY: z.string().nonempty(),
+    PORT: z.coerce.number().finite().gte(0).lte(65535),
   })
   .parse(dotenv({ path: path.join(import.meta.dirname, "..", ".env") }).parsed);
 
 const config = {
   openaiKey: env.OPENAI_KEY,
   cartesiaKey: env.CARTESIA_KEY,
+  port: env.PORT,
 };
 
 export default config;

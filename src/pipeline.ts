@@ -1,6 +1,8 @@
 import { OpenAI } from "openai";
 import { CartesiaClient } from "@cartesia/cartesia-js";
 import config from "~/config.js";
+import SpeakerPkg from "speaker";
+const Speaker = SpeakerPkg;
 
 export default class Pipeline {
   private openai = new OpenAI({ apiKey: config.openaiKey });
@@ -56,6 +58,7 @@ export default class Pipeline {
   stt(buffer: Buffer<ArrayBufferLike>) {
     return new Promise<string>(async (resolve) => {
       const parts: string[] = [];
+      const startTime = Date.now();
       await this.sttSocket.onMessage(async (message) => {
         switch (message.type) {
           case "transcript":
@@ -66,6 +69,7 @@ export default class Pipeline {
             break;
           case "done":
             resolve(parts.join("").trim());
+            console.log("stt:", Date.now() - startTime);
             break;
         }
       });
@@ -80,6 +84,8 @@ export default class Pipeline {
   }
 
   async llm(text: string) {
+    const startTime = Date.now();
+
     const response = await this.openai.responses.create({
       model: "gpt-4.1-nano-2025-04-14",
       instructions: "You are a friendly assistant.",
@@ -90,10 +96,13 @@ export default class Pipeline {
         },
       ],
     });
+    console.log("llm:", Date.now() - startTime);
     return response.output_text;
   }
 
   async tts(text: string) {
+    const startTime = Date.now();
+    let gotFirstChunk = false;
     const response = await this.ttsSocket.send({
       modelId: "sonic-2",
       voice: {
@@ -107,10 +116,53 @@ export default class Pipeline {
       const json = JSON.parse(message);
       switch (json.type) {
         case "chunk":
-          chunks.push(Buffer.from(json.data, "base64"));
+          if (!gotFirstChunk) {
+            gotFirstChunk = true;
+            console.log("tts first chunk:", Date.now() - startTime);
+          }
+          const pcm = Buffer.from(json.data, "base64");
+          chunks.push(pcm);
           break;
       }
     }
+    console.log("tts:", Date.now() - startTime);
     return Buffer.from(await this.pcmToWav(Buffer.concat(chunks), 44100, 1).arrayBuffer());
+  }
+
+  async ttsStream(text: string, ws: any) {
+    const startTime = Date.now();
+    let gotFirstChunk = false;
+    const response = await this.ttsSocket.send({
+      modelId: "sonic-2",
+      voice: {
+        mode: "id",
+        id: "a0e99841-438c-4a64-b679-ae501e7d6091",
+      },
+      transcript: text,
+    });
+    const chunks: Buffer[] = [];
+    for await (const message of response.events("message")) {
+      const json = JSON.parse(message);
+      switch (json.type) {
+        case "chunk":
+          if (!gotFirstChunk) {
+            gotFirstChunk = true;
+            console.log("tts first chunk:", Date.now() - startTime);
+          }
+          const pcm = Buffer.from(json.data, "base64");
+          const wav = await this.pcmToWav(pcm, 44100, 1);
+
+          if (wav instanceof Blob) {
+            ws.send(await wav.arrayBuffer());
+          } else if ((wav as any) instanceof Uint8Array) {
+            ws.send((wav as Uint8Array).buffer);
+          } else {
+            console.warn("Unexpected wav type:", typeof wav);
+          }
+
+          break;
+      }
+    }
+    console.log("tts:", Date.now() - startTime);
   }
 }
