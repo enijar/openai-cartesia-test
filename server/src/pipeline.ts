@@ -1,8 +1,6 @@
 import { OpenAI } from "openai";
 import { CartesiaClient } from "@cartesia/cartesia-js";
 import config from "~/config.js";
-import SpeakerPkg from "speaker";
-const Speaker = SpeakerPkg;
 
 export default class Pipeline {
   private openai = new OpenAI({ apiKey: config.openaiKey });
@@ -131,7 +129,6 @@ export default class Pipeline {
 
   async ttsStream(text: string, ws: any) {
     const startTime = Date.now();
-    let gotFirstChunk = false;
     const response = await this.ttsSocket.send({
       modelId: "sonic-2",
       voice: {
@@ -140,26 +137,18 @@ export default class Pipeline {
       },
       transcript: text,
     });
-    const chunks: Buffer[] = [];
+    let firstChunk = true;
     for await (const message of response.events("message")) {
       const json = JSON.parse(message);
       switch (json.type) {
         case "chunk":
-          if (!gotFirstChunk) {
-            gotFirstChunk = true;
+          if (firstChunk) {
+            firstChunk = false;
             console.log("tts first chunk:", Date.now() - startTime);
           }
           const pcm = Buffer.from(json.data, "base64");
-          const wav = await this.pcmToWav(pcm, 44100, 1);
-
-          if (wav instanceof Blob) {
-            ws.send(await wav.arrayBuffer());
-          } else if ((wav as any) instanceof Uint8Array) {
-            ws.send((wav as Uint8Array).buffer);
-          } else {
-            console.warn("Unexpected wav type:", typeof wav);
-          }
-
+          const wav = this.pcmToWav(pcm, 44100, 1);
+          ws.send(await wav.arrayBuffer());
           break;
       }
     }
