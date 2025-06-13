@@ -16,6 +16,7 @@ const dataDir = path.join(import.meta.dirname, "..", "data");
 app.get(
   "/ws",
   upgradeWebSocket(() => {
+    const pipeline = new Pipeline();
     return {
       onOpen(event, ws) {
         console.log("WebSocket connection opened", event);
@@ -24,12 +25,9 @@ app.get(
         const startTime = Date.now();
         const arrayBuffer = event.data as ArrayBuffer;
         const base64Audio = Buffer.from(arrayBuffer);
-
-        const pipeline = new Pipeline();
         const text = await pipeline.stt(base64Audio);
         const response = await pipeline.llm(text);
         await pipeline.ttsStream(response, ws);
-
         console.log("Execution time", Date.now() - startTime);
       },
       onClose(event, ws) {

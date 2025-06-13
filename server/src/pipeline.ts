@@ -1,4 +1,5 @@
 import { OpenAI } from "openai";
+import { ResponseInput } from "openai/resources/responses/responses";
 import { CartesiaClient } from "@cartesia/cartesia-js";
 import config from "~/config.js";
 
@@ -16,6 +17,7 @@ export default class Pipeline {
     encoding: "pcm_s16le",
     sampleRate: 44100,
   });
+  private input: ResponseInput = [];
 
   private pcmToWav(pcmBytes: Uint8Array<ArrayBuffer>, sampleRate = 16000, numChannels = 1) {
     const byteRate = sampleRate * numChannels * 2;
@@ -82,19 +84,16 @@ export default class Pipeline {
   }
 
   async llm(text: string) {
+    this.input.push({ role: "user", content: text });
+    console.log(this.input);
     const startTime = Date.now();
-
     const response = await this.openai.responses.create({
       model: "gpt-4.1-nano-2025-04-14",
       instructions: "You are a friendly assistant.",
-      input: [
-        {
-          role: "user",
-          content: text,
-        },
-      ],
+      input: this.input,
     });
     console.log("llm:", Date.now() - startTime);
+    this.input.push({ role: "assistant", content: response.output_text });
     return response.output_text;
   }
 
