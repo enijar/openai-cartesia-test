@@ -14,18 +14,12 @@ app.get(
   upgradeWebSocket(() => {
     const pipeline = new Pipeline();
     return {
-      onOpen() {
-        console.log("WebSocket connection opened");
-      },
       async onMessage(event, ws) {
         const startTime = Date.now();
         const text = await pipeline.stt(Buffer.from(event.data as ArrayBufferLike));
         const response = await pipeline.llm(text);
         await pipeline.tts(response, ws);
         console.log("Execution time", Date.now() - startTime);
-      },
-      onClose(event, ws) {
-        console.log("WebSocket connection closed", event);
       },
       onError(event) {
         // todo: handle error
