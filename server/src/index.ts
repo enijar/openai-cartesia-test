@@ -19,9 +19,7 @@ app.get(
       },
       async onMessage(event, ws) {
         const startTime = Date.now();
-        const arrayBuffer = event.data as ArrayBuffer;
-        const base64Audio = Buffer.from(arrayBuffer);
-        const text = await pipeline.stt(base64Audio);
+        const text = await pipeline.stt(Buffer.from(event.data as ArrayBufferLike));
         const response = await pipeline.llm(text);
         await pipeline.tts(response, ws);
         console.log("Execution time", Date.now() - startTime);

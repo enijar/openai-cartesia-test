@@ -36,26 +36,29 @@ export default function Call() {
     };
     socket.addEventListener(
       "message",
-      async (event) => {
-        const blob = new Blob([event.data], { type: "audio/wav" });
-        try {
-          audioQueue.push(await audioContext.decodeAudioData(await blob.arrayBuffer()));
-          playNext();
-        } catch (err) {
-          console.error("Decode failed:", err);
+      (event) => {
+        // Assume PCM 16-bit little-endian, 1 channel, 44.1kHz
+        const pcm16 = new Int16Array(event.data);
+        const float32 = new Float32Array(pcm16.length);
+        for (let i = 0; i < pcm16.length; i++) {
+          float32[i] = pcm16[i] / 0x8000;
         }
+        const frameCount = float32.length;
+        const audioBuffer = audioContext.createBuffer(1, frameCount, 44100);
+        audioBuffer.copyToChannel(float32, 0, 0);
+        audioQueue.push(audioBuffer);
+        playNext();
       },
       { signal: controller.signal },
     );
-    // todo: handle error
     socket.addEventListener("error", console.error, { signal: controller.signal });
     let timeout: NodeJS.Timeout;
     socket.addEventListener(
       "close",
       () => {
-        console.warn("WebSocket closed, try reconnecting...");
+        console.warn("WebSocket closed, reconnecting...");
         timeout = setTimeout(() => {
-          setReconnectKey((reconnectKey) => (reconnectKey + 1) % 1000);
+          setReconnectKey((key) => (key + 1) % 1000);
         }, 1000);
       },
       { signal: controller.signal },
@@ -71,28 +74,23 @@ export default function Call() {
     <Style.Wrapper>
       <VAD
         onStart={() => {
-          console.log("onStart");
           setStarted(true);
         }}
         onStop={() => {
-          console.log("onStop");
           audioContext.close().catch(console.error);
           setStarted(false);
         }}
         onSpeechStart={() => {
-          console.log("onSpeechStart");
+          console.log("Speech started");
         }}
         onSpeechEnd={(audio) => {
-          console.log("onSpeechEnd->audio", audio);
           if (socket.readyState !== WebSocket.OPEN) return;
           const int16 = new Int16Array(audio.length);
           for (let i = 0; i < audio.length; i++) {
             const s = Math.max(-1, Math.min(1, audio[i]));
             int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
           }
-          const pcm = new Uint8Array(int16.buffer);
-          console.log("Sending data via WebSocket");
-          socket.send(pcm);
+          socket.send(new Uint8Array(int16.buffer));
         }}
       />
     </Style.Wrapper>

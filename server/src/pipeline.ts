@@ -20,42 +20,6 @@ export default class Pipeline {
   });
   private input: ResponseInput = [];
 
-  private pcmToWav(pcmBytes: Uint8Array<ArrayBuffer>, sampleRate = 16000, numChannels = 1) {
-    const byteRate = sampleRate * numChannels * 2;
-    const blockAlign = numChannels * 2;
-    const wavDataSize = pcmBytes.length;
-    const buffer = new ArrayBuffer(44 + wavDataSize);
-    const view = new DataView(buffer);
-    let offset = 0;
-    view.setUint32(offset, 0x52494646, false);
-    offset += 4;
-    view.setUint32(offset, 36 + wavDataSize, true);
-    offset += 4;
-    view.setUint32(offset, 0x57415645, false);
-    offset += 4;
-    view.setUint32(offset, 0x666d7420, false);
-    offset += 4;
-    view.setUint32(offset, 16, true);
-    offset += 4;
-    view.setUint16(offset, 1, true);
-    offset += 2;
-    view.setUint16(offset, numChannels, true);
-    offset += 2;
-    view.setUint32(offset, sampleRate, true);
-    offset += 4;
-    view.setUint32(offset, byteRate, true);
-    offset += 4;
-    view.setUint16(offset, blockAlign, true);
-    offset += 2;
-    view.setUint16(offset, 16, true);
-    offset += 2;
-    view.setUint32(offset, 0x64617461, false);
-    offset += 4;
-    view.setUint32(offset, wavDataSize, true);
-    new Uint8Array(buffer, 44).set(pcmBytes);
-    return new Blob([buffer], { type: "audio/wav" });
-  }
-
   stt(buffer: Buffer<ArrayBufferLike>) {
     return new Promise<string>(async (resolve) => {
       const parts: string[] = [];
@@ -308,9 +272,7 @@ This system prompt is designed to work with the Elevenlabs conversational AI tec
             firstChunk = false;
             console.log("tts first chunk:", Date.now() - startTime);
           }
-          const pcm = Buffer.from(json.data, "base64");
-          const wav = this.pcmToWav(pcm, 44100, 1);
-          ws.send(await wav.arrayBuffer());
+          ws.send(Buffer.from(json.data, "base64"));
           break;
       }
     }
