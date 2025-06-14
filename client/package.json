@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@ricky0123/vad-web": "0.0.24",
-    "onnxruntime-web": "1.22.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "styled-components": "6.1.19",
