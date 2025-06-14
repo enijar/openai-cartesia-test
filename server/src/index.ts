@@ -15,7 +15,17 @@ app.get(
     const pipeline = new Pipeline();
     return {
       async onMessage(event, ws) {
+        if (typeof event.data === "string") {
+          try {
+            const json = JSON.parse(event.data);
+            if (json.event === "stopTts") {
+              pipeline.stop();
+            }
+          } catch {}
+          return;
+        }
         const startTime = Date.now();
+        pipeline.start();
         const text = await pipeline.stt(Buffer.from(event.data as ArrayBufferLike));
         const response = await pipeline.llm(text);
         await pipeline.tts(response, ws);

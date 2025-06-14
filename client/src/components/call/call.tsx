@@ -1,96 +1,96 @@
 import React from "react";
 import * as Style from "~/components/call/call.style";
 import VAD from "~/components/call/vad";
+import AudioPlayer from "~/components/call/audio-player";
 
 export default function Call() {
-  const [reconnectKey, setReconnectKey] = React.useState(0);
-  const socket = React.useMemo(() => new WebSocket("/ws"), [reconnectKey]);
-  const [started, setStarted] = React.useState(false);
-  const audioContext = React.useMemo(() => new AudioContext(), [started]);
+  const [playing, setPlaying] = React.useState(false);
+  const playerRef = React.useRef<AudioPlayer>(null);
+  const wsRef = React.useRef<WebSocket | null>(null);
 
+  // 1) One‐time AudioPlayer setup
   React.useEffect(() => {
-    const controller = new AbortController();
-    socket.binaryType = "arraybuffer";
-    socket.addEventListener(
-      "open",
-      () => {
-        console.log("WebSocket connection established");
-      },
-      { signal: controller.signal },
-    );
-    const audioQueue: AudioBuffer[] = [];
-    let playing = false;
-    const playNext = () => {
-      if (playing) return;
-      const buffer = audioQueue.shift();
-      if (buffer === undefined) return;
-      const source = audioContext.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioContext.destination);
-      source.onended = () => {
-        playing = false;
-        playNext();
-      };
-      source.start();
-      playing = true;
-    };
-    socket.addEventListener(
-      "message",
-      (event) => {
-        // Assume PCM 16-bit little-endian, 1 channel, 44.1kHz
-        const pcm16 = new Int16Array(event.data);
-        const float32 = new Float32Array(pcm16.length);
-        for (let i = 0; i < pcm16.length; i++) {
-          float32[i] = pcm16[i] / 0x8000;
-        }
-        const frameCount = float32.length;
-        const audioBuffer = audioContext.createBuffer(1, frameCount, 44100);
-        audioBuffer.copyToChannel(float32, 0, 0);
-        audioQueue.push(audioBuffer);
-        playNext();
-      },
-      { signal: controller.signal },
-    );
-    socket.addEventListener("error", console.error, { signal: controller.signal });
-    let timeout: NodeJS.Timeout;
-    socket.addEventListener(
-      "close",
-      () => {
-        console.warn("WebSocket closed, reconnecting...");
-        timeout = setTimeout(() => {
-          setReconnectKey((key) => (key + 1) % 1000);
-        }, 1000);
-      },
-      { signal: controller.signal },
-    );
+    const p = new AudioPlayer(44100, 10);
+    playerRef.current = p;
+    p.init().catch(console.error);
     return () => {
-      controller.abort();
-      audioQueue.length = 0;
-      clearTimeout(timeout);
+      p.pause().catch(() => {});
     };
-  }, [socket, audioContext]);
+  }, []);
+
+  // 2) Open WS once, stay open
+  React.useEffect(() => {
+    const ws = new WebSocket("ws://localhost:8080/ws");
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = () => console.log("WebSocket connected");
+    ws.onmessage = (evt) => {
+      if (typeof evt.data === "string") {
+        // control message
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.event === "endOfTts") {
+            // TTS is done
+            setPlaying(false);
+          }
+        } catch {}
+        return;
+      }
+
+      // it’s a PCM chunk
+      const pcm16 = new Int16Array(evt.data);
+      const f32 = new Float32Array(pcm16.length);
+      for (let i = 0; i < pcm16.length; i++) {
+        f32[i] = pcm16[i] / 0x8000;
+      }
+
+      const player = playerRef.current!;
+      player.enqueue(f32);
+      if (!playing) {
+        player
+          .play()
+          .then(() => setPlaying(true))
+          .catch(console.error);
+      }
+    };
+    ws.onerror = (err) => console.error("WebSocket error", err);
+
+    wsRef.current = ws;
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, []);
+
+  // helper to tell server to abort TTS
+  const sendStopTts = () => {
+    wsRef.current?.send(JSON.stringify({ event: "stopTts" }));
+  };
 
   return (
     <Style.Wrapper>
       <VAD
-        onStart={() => {
-          setStarted(true);
-        }}
+        onStart={() => {}}
         onStop={() => {
-          audioContext.close().catch(console.error);
-          setStarted(false);
+          playerRef.current?.pause().catch(console.error);
+          setPlaying(false);
         }}
         onSpeechStart={() => {
-          console.log("Speech started");
+          // user begins talking → interrupt TTS
+          console.log("User started speaking — interrupting TTS");
+          sendStopTts();
+          playerRef.current?.stop().catch(console.error);
+          setPlaying(false);
         }}
-        onSpeechEnd={(audio) => {
-          if (socket.readyState !== WebSocket.OPEN) return;
-          const int16 = new Int16Array(audio.length);
-          for (let i = 0; i < audio.length; i++) {
-            const s = Math.max(-1, Math.min(1, audio[i]));
-            int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        onSpeechEnd={(recorded) => {
+          // send the user’s speech as binary
+          const pcm16 = new Int16Array(recorded.length);
+          for (let i = 0; i < recorded.length; i++) {
+            const s = Math.max(-1, Math.min(1, recorded[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
           }
-          socket.send(new Uint8Array(int16.buffer));
+          wsRef.current?.send(pcm16.buffer);
+          // server will start streaming TTS back on the same WS
         }}
       />
     </Style.Wrapper>

@@ -1,10 +1,10 @@
 import { OpenAI } from "openai";
-import { ResponseInput } from "openai/resources/responses/responses";
 import { CartesiaClient } from "@cartesia/cartesia-js";
 import type { WSContext } from "hono/ws";
 import config from "~/config.js";
 
 export default class Pipeline {
+  private stopped = false;
   private openai = new OpenAI({ apiKey: config.openaiKey });
   private cartesia = new CartesiaClient({ apiKey: config.cartesiaKey });
   private sttSocket = this.cartesia.stt.websocket({
@@ -18,7 +18,15 @@ export default class Pipeline {
     encoding: "pcm_s16le",
     sampleRate: 44100,
   });
-  private input: ResponseInput = [];
+  private input: Array<{ role: "user" | "assistant"; content: string }> = [];
+
+  stop() {
+    this.stopped = true;
+  }
+
+  start() {
+    this.stopped = false;
+  }
 
   stt(buffer: Buffer<ArrayBufferLike>) {
     return new Promise<string>(async (resolve) => {
@@ -40,6 +48,7 @@ export default class Pipeline {
       });
       const chunkSize = 3200;
       for (let i = 0; i < buffer.length; i += chunkSize) {
+        if (this.stopped) break;
         const chunk = buffer.subarray(i, i + chunkSize);
         const arrayBuffer = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
         await this.sttSocket.send(arrayBuffer as ArrayBuffer);
@@ -49,10 +58,10 @@ export default class Pipeline {
   }
 
   async llm(text: string) {
+    console.log("llm->input", text);
     this.input.push({ role: "user", content: text });
-    console.log(this.input);
     const startTime = Date.now();
-    const response = await this.openai.responses.create({
+    const chunks = await this.openai.responses.create({
       model: "gpt-4.1-nano-2025-04-14",
       instructions: `# ConvEx System Prompt
 
@@ -247,10 +256,22 @@ This system prompt is designed to work with the Elevenlabs conversational AI tec
 
 - Potential Evolution: More receptive if feedback includes actionable steps and recognises her problem-solving contributions alongside improvement areas`,
       input: this.input,
+      stream: true,
     });
+    const index = this.input.push({ role: "assistant", content: "" }) - 1;
+    let parts = 0;
+    for await (const chunk of chunks) {
+      if (this.stopped) break;
+      if (chunk.type !== "response.output_text.delta") continue;
+      if (parts === 0) {
+        console.log("llm (first chunk):", Date.now() - startTime);
+      }
+      parts++;
+      this.input[index].content += chunk.delta;
+    }
     console.log("llm:", Date.now() - startTime);
-    this.input.push({ role: "assistant", content: response.output_text });
-    return response.output_text;
+    console.log("llm->output", this.input[index].content);
+    return this.input[index].content;
   }
 
   async tts(text: string, ws: WSContext<WebSocket>) {
@@ -265,6 +286,7 @@ This system prompt is designed to work with the Elevenlabs conversational AI tec
     });
     let firstChunk = true;
     for await (const message of response.events("message")) {
+      if (this.stopped) break;
       const json = JSON.parse(message);
       switch (json.type) {
         case "chunk":
@@ -277,5 +299,6 @@ This system prompt is designed to work with the Elevenlabs conversational AI tec
       }
     }
     console.log("tts:", Date.now() - startTime);
+    ws.send(JSON.stringify({ event: "endOfTts" }));
   }
 }
