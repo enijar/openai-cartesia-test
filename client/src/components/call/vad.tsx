@@ -22,6 +22,7 @@ export default function VAD(props: Props) {
   React.useEffect(() => {
     MicVAD.new({
       model: "v5",
+      minSpeechFrames: 0,
       onSpeechStart() {
         props.onSpeechStart();
       },
