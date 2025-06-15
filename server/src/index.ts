@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { serve } from "@hono/node-server";
+import { z } from "zod";
 import config from "./config.ts";
 import Pipeline from "~/pipeline.js";
 
@@ -16,6 +17,10 @@ const callInstructions = await fs.promises.readFile(
   "utf-8",
 );
 
+const jsonSchema = z.object({
+  event: z.enum(["stopTts", "endCall"]),
+});
+
 app.get(
   "/ws",
   upgradeWebSocket(() => {
@@ -24,11 +29,23 @@ app.get(
       async onMessage(event, ws) {
         if (typeof event.data === "string") {
           try {
-            const json = JSON.parse(event.data);
-            if (json.event === "stopTts") {
-              pipeline.stop();
+            console.log("event.data", event.data);
+            const data = jsonSchema.parse(JSON.parse(event.data));
+            console.log("data", data);
+            switch (data.event) {
+              case "stopTts":
+                pipeline.stop();
+                break;
+              case "endCall":
+                console.log("call ended");
+                pipeline.stop();
+                const audio = pipeline.getCombinedAudioWav();
+                await fs.promises.writeFile(path.join(import.meta.dirname, "..", "data", "call.wav"), audio);
+                break;
             }
-          } catch {}
+          } catch (err) {
+            console.error(err);
+          }
           return;
         }
         const startTime = Date.now();

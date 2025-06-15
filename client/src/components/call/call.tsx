@@ -62,23 +62,20 @@ export default function Call() {
     };
   }, []);
 
-  // helper to tell server to abort TTS
-  const sendStopTts = () => {
-    wsRef.current?.send(JSON.stringify({ event: "stopTts" }));
-  };
-
   return (
     <Style.Wrapper>
       <VAD
         onStart={() => {}}
         onStop={() => {
+          console.log("call ended");
           playerRef.current?.pause().catch(console.error);
+          wsRef.current?.send(JSON.stringify({ event: "endCall" }));
           setPlaying(false);
         }}
         onSpeechStart={() => {
           // user begins talking → interrupt TTS
           console.log("User started speaking — interrupting TTS");
-          sendStopTts();
+          wsRef.current?.send(JSON.stringify({ event: "stopTts" }));
           playerRef.current?.stop().catch(console.error);
           setPlaying(false);
         }}
