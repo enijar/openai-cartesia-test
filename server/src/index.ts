@@ -45,6 +45,7 @@ app.get(
                 } else {
                   console.warn("No audio recorded");
                 }
+                pipeline.end();
                 break;
             }
           } catch (err) {

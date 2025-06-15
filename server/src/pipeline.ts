@@ -44,8 +44,12 @@ export default class Pipeline {
 
   start() {
     this.stopped = false;
+  }
+
+  end() {
+    this.stopped = true;
     // clear out any previously collected audio
-    // this.audioChunks = [];
+    this.audioChunks = [];
   }
 
   async stt(buffer: Buffer<ArrayBufferLike>) {
