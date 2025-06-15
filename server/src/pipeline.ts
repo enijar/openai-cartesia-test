@@ -1,37 +1,33 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { OpenAI } from "openai";
 import { CartesiaClient } from "@cartesia/cartesia-js";
 import type { WSContext } from "hono/ws";
 import config from "~/config.js";
+import Audio from "~/audio.js";
 import { injectVariables } from "~/utils.js";
 
 export default class Pipeline {
   private stopped = false;
   private openai = new OpenAI({ apiKey: config.openaiKey });
   private cartesia = new CartesiaClient({ apiKey: config.cartesiaKey });
+  private audio = new Audio();
 
   // keep a chronological list of all audio buffers
   // we store sampleRate here so you can sanity-check later if needed
-  private audioChunks: Array<{
-    role: "user" | "assistant";
-    data: Buffer;
-    sampleRate: number;
-  }> = [];
-
-  // for reference when generating the WAV header
-  private readonly sttSampleRate = 16000;
-  private readonly ttsSampleRate = 16000;
+  private audioChunks: Array<{ role: "user" | "assistant"; data: Buffer }> = [];
 
   private sttSocket = this.cartesia.stt.websocket({
     model: "ink-whisper",
     language: "en",
     encoding: "pcm_s16le",
-    sampleRate: this.sttSampleRate,
+    sampleRate: 16000,
   });
   private ttsSocket = this.cartesia.tts.websocket({
     container: "raw",
     encoding: "pcm_s16le",
-    sampleRate: this.ttsSampleRate,
+    sampleRate: 16000,
   });
 
   private input: Array<{ role: "user" | "assistant"; content: string }> = [];
@@ -54,11 +50,7 @@ export default class Pipeline {
 
   async stt(buffer: Buffer<ArrayBufferLike>) {
     // record the raw user audio buffer
-    this.audioChunks.push({
-      role: "user",
-      data: buffer,
-      sampleRate: this.sttSampleRate,
-    });
+    this.audioChunks.push({ role: "user", data: buffer });
 
     return new Promise<string>(async (resolve) => {
       const parts: string[] = [];
@@ -144,16 +136,12 @@ export default class Pipeline {
           firstChunk = false;
           console.log("tts first chunk:", Date.now() - startTime);
         }
-        const buf = Buffer.from(json.data, "base64");
+        const buffer = Buffer.from(json.data, "base64");
 
         // record each assistant TTS chunk
-        this.audioChunks.push({
-          role: "assistant",
-          data: buf,
-          sampleRate: this.ttsSampleRate,
-        });
+        this.audioChunks.push({ role: "assistant", data: buffer });
 
-        yield { type: "part", data: buf } as const;
+        yield { type: "part", data: buffer } as const;
       }
     }
     console.log("tts:", Date.now() - startTime);
@@ -199,47 +187,7 @@ export default class Pipeline {
     ws.send(JSON.stringify({ event: "endOfTts" }));
   }
 
-  private resamplePCM16(buf: Buffer, srcRate: number, dstRate: number) {
-    if (srcRate === dstRate) return buf;
-    const srcSamples = buf.length / 2;
-    const dstSamples = Math.floor((srcSamples * dstRate) / srcRate);
-    const out = Buffer.alloc(dstSamples * 2);
-    for (let i = 0; i < dstSamples; i++) {
-      const srcIndex = Math.floor((i * srcRate) / dstRate);
-      const sample = buf.readInt16LE(srcIndex * 2);
-      out.writeInt16LE(sample, i * 2);
-    }
-    return out;
-  }
-
-  public getCombinedAudioWav(outputRate = this.ttsSampleRate) {
-    if (this.audioChunks.length === 0) {
-      return null;
-    }
-    // WAV header constants
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const byteRate = outputRate * numChannels * (bitsPerSample / 8);
-    const blockAlign = numChannels * (bitsPerSample / 8);
-    // resample each chunk to `outputRate`
-    const pcmBuffers = this.audioChunks.map(({ data, sampleRate }) => this.resamplePCM16(data, sampleRate, outputRate));
-    const pcmData = Buffer.concat(pcmBuffers);
-    const dataSize = pcmData.length;
-    // build WAV header
-    const header = Buffer.alloc(44);
-    header.write("RIFF", 0);
-    header.writeUInt32LE(36 + dataSize, 4);
-    header.write("WAVE", 8);
-    header.write("fmt ", 12);
-    header.writeUInt32LE(16, 16);
-    header.writeUInt16LE(1, 20);
-    header.writeUInt16LE(numChannels, 22);
-    header.writeUInt32LE(outputRate, 24);
-    header.writeUInt32LE(byteRate, 28);
-    header.writeUInt16LE(blockAlign, 32);
-    header.writeUInt16LE(bitsPerSample, 34);
-    header.write("data", 36);
-    header.writeUInt32LE(dataSize, 40);
-    return Buffer.concat([header, pcmData]);
+  async getCombinedAudioWav() {
+    return await this.audio.pcmToWav(this.audioChunks.map((chunk) => chunk.data));
   }
 }
