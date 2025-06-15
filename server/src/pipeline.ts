@@ -3,6 +3,7 @@ import { OpenAI } from "openai";
 import { CartesiaClient } from "@cartesia/cartesia-js";
 import type { WSContext } from "hono/ws";
 import config from "~/config.js";
+import { injectVariables } from "~/utils.js";
 
 export default class Pipeline {
   private stopped = false;
@@ -60,14 +61,25 @@ export default class Pipeline {
     });
   }
 
-  async *llm(text: string) {
+  async *llm(text: string, persona: string) {
     console.log("llm->input", text);
     this.input.push({ role: "user", content: text });
     const startTime = Date.now();
     const chunks = await this.openai.responses.create({
       model: "gpt-4.1-nano-2025-04-14",
-      instructions: this.instructions,
-      input: this.input,
+      instructions: injectVariables(this.instructions, {
+        knowledgeCutoff: "2025-04-14",
+        currentDate: new Date().toISOString().slice(0, 10),
+        difficulty: "Easy",
+        persona,
+      }),
+      input: [
+        {
+          role: "system",
+          content: "",
+        },
+        ...this.input,
+      ],
       stream: true,
     });
     const index = this.input.push({ role: "assistant", content: "" }) - 1;
@@ -119,9 +131,9 @@ export default class Pipeline {
     // ws.send(JSON.stringify({ event: "endOfTts" }));
   }
 
-  async run(ws: WSContext<WebSocket>, buffer: Buffer<ArrayBufferLike>) {
+  async run(ws: WSContext<WebSocket>, buffer: Buffer<ArrayBufferLike>, persona: string) {
     const text = await this.stt(buffer);
-    const chunks = this.llm(text);
+    const chunks = this.llm(text, persona);
     const contextId = crypto.randomUUID();
     const sentenceBoundary = /(?<=[.?!])\s+/;
     let llmBuffer = "";

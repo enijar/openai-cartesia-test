@@ -33,7 +33,11 @@ app.get(
         }
         const startTime = Date.now();
         pipeline.start();
-        await pipeline.run(ws, Buffer.from(event.data as ArrayBufferLike));
+        await pipeline.run(
+          ws,
+          Buffer.from(event.data as ArrayBufferLike),
+          await fs.promises.readFile(path.join(import.meta.dirname, "..", "prompts", "example-persona.md"), "utf-8"),
+        );
         console.log("Execution time", Date.now() - startTime);
         // const text = await pipeline.stt(Buffer.from(event.data as ArrayBufferLike));
         // const response = await pipeline.llm(text);
