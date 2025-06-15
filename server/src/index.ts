@@ -34,10 +34,10 @@ app.get(
         const startTime = Date.now();
         pipeline.start();
         await pipeline.run(ws, Buffer.from(event.data as ArrayBufferLike));
+        console.log("Execution time", Date.now() - startTime);
         // const text = await pipeline.stt(Buffer.from(event.data as ArrayBufferLike));
         // const response = await pipeline.llm(text);
         // await pipeline.tts(response, ws);
-        // console.log("Execution time", Date.now() - startTime);
       },
       onError(event) {
         // todo: handle error

@@ -20,9 +20,12 @@ export default function VAD(props: Props) {
   const [started, setStarted] = React.useState(false);
   const vadRef = React.useRef<MicVAD>(null);
   React.useEffect(() => {
+    const framePadding = 30;
     MicVAD.new({
       model: "v5",
       minSpeechFrames: 0,
+      preSpeechPadFrames: framePadding,
+      redemptionFrames: framePadding,
       onSpeechStart() {
         props.onSpeechStart();
       },
