@@ -40,7 +40,11 @@ app.get(
                 console.log("call ended");
                 pipeline.stop();
                 const audio = pipeline.getCombinedAudioWav();
-                await fs.promises.writeFile(path.join(import.meta.dirname, "..", "data", "call.wav"), audio);
+                if (audio !== null) {
+                  await fs.promises.writeFile(path.join(import.meta.dirname, "..", "data", "call.wav"), audio);
+                } else {
+                  console.warn("No audio recorded");
+                }
                 break;
             }
           } catch (err) {
