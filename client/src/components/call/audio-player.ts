@@ -4,7 +4,7 @@ export default class AudioPlayer {
   private node!: AudioWorkletNode;
 
   constructor(
-    private sampleRate: number = 44100,
+    private sampleRate: number = 16000,
     bufferSeconds: number = 10,
   ) {
     this.audioCtx = new AudioContext({ sampleRate: this.sampleRate });

@@ -10,7 +10,7 @@ export default function Call() {
 
   // 1) One‐time AudioPlayer setup
   React.useEffect(() => {
-    const p = new AudioPlayer(44100, 10);
+    const p = new AudioPlayer(16000, 10);
     playerRef.current = p;
     p.init().catch(console.error);
     return () => {

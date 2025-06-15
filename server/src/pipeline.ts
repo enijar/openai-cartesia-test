@@ -20,7 +20,7 @@ export default class Pipeline {
 
   // for reference when generating the WAV header
   private readonly sttSampleRate = 16000;
-  private readonly ttsSampleRate = 44100;
+  private readonly ttsSampleRate = 16000;
 
   private sttSocket = this.cartesia.stt.websocket({
     model: "ink-whisper",
