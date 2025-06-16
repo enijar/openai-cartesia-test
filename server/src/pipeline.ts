@@ -154,7 +154,7 @@ export default class Pipeline {
       })),
     ];
     const chunks = await this.anthropic.messages.stream({
-      model: "claude-opus-4-20250514",
+      model: "claude-3-5-haiku-20241022",
       max_tokens: 1024,
       messages: claudeMessages,
     });
@@ -226,8 +226,20 @@ export default class Pipeline {
     modelName: "claude" | "openai",
   ) {
     const text = await this.stt(buffer);
-    // const chunks = this.llm(text, persona);
-    // const chunks = this.llmnAnthropic(text, persona);
+
+    if (!text.trim()) {
+      const contextId = crypto.randomUUID();
+      for await (const ttsChunk of this.tts(
+        "I'm sorry, I'm not following. Could you say that again?",
+        contextId,
+        true,
+      )) {
+        ws.send(ttsChunk.data);
+      }
+      ws.send(JSON.stringify({ event: "endOfTts" }));
+      return;
+    }
+
     const llm = this.getLLMProvider(modelName);
     const chunks = llm(text, persona);
     const contextId = crypto.randomUUID();
