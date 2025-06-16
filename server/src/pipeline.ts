@@ -2,15 +2,23 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { OpenAI } from "openai";
+import { Anthropic } from "@anthropic-ai/sdk";
 import { CartesiaClient } from "@cartesia/cartesia-js";
 import type { WSContext } from "hono/ws";
 import config from "~/config.js";
 import Audio from "~/audio.js";
 import { injectVariables } from "~/utils.js";
 
+// Define the LLMProvider type
+type LLMProvider = (
+  text: string,
+  persona: string,
+) => AsyncGenerator<{ type: "part" | "final"; data: string }, void, unknown>;
+
 export default class Pipeline {
   private stopped = false;
   private openai = new OpenAI({ apiKey: config.openaiKey });
+  private anthropic = new Anthropic({ apiKey: config.anthropicKey });
   private cartesia = new CartesiaClient({ apiKey: config.cartesiaKey });
   private audio = new Audio();
 
@@ -46,6 +54,17 @@ export default class Pipeline {
     this.stopped = true;
     // clear out any previously collected audio
     this.audioChunks = [];
+  }
+
+  getLLMProvider(modelName: string): LLMProvider {
+    switch (modelName) {
+      case "claude":
+        return this.llmnAnthropic.bind(this);
+      case "openai":
+        return this.llm.bind(this);
+      default:
+        return this.llm.bind(this);
+    }
   }
 
   async stt(buffer: Buffer<ArrayBufferLike>) {
@@ -114,6 +133,59 @@ export default class Pipeline {
     yield { type: "final", data: this.input[index].content } as const;
   }
 
+  async *llmnAnthropic(text: string, persona: string) {
+    console.log("llm->input", text);
+    this.input.push({ role: "user", content: text });
+    const startTime = Date.now();
+
+    const claudeMessages = [
+      {
+        role: "user" as const,
+        content: injectVariables(this.instructions, {
+          knowledgeCutoff: "2025-04-14",
+          currentDate: new Date().toISOString().slice(0, 10),
+          difficulty: "Easy",
+          persona,
+        }),
+      },
+      ...this.input.map(({ role, content }) => ({
+        role: role as "user" | "assistant",
+        content,
+      })),
+    ];
+    const chunks = await this.anthropic.messages.stream({
+      model: "claude-opus-4-20250514",
+      max_tokens: 1024,
+      messages: claudeMessages,
+    });
+
+    const index = this.input.push({ role: "assistant", content: "" }) - 1;
+    let parts = 0;
+    for await (const chunk of chunks) {
+      if (this.stopped) break;
+      let delta: string | undefined;
+      if (
+        chunk.type === "content_block_delta" &&
+        chunk.delta &&
+        typeof chunk.delta === "object" &&
+        "text" in chunk.delta
+      ) {
+        delta = chunk.delta.text;
+      }
+      if (!delta) continue;
+
+      if (parts === 0) {
+        console.log("llm (first chunk):", Date.now() - startTime);
+      }
+      parts++;
+      yield { type: "part", data: delta } as const;
+      this.input[index].content += delta;
+    }
+    console.log("llm:", Date.now() - startTime);
+    console.log("llm->output", this.input[index].content);
+    yield { type: "final", data: this.input[index].content } as const;
+  }
+
   async *tts(text: string, contextId: string, first: boolean) {
     const startTime = Date.now();
     const response = await this.ttsSocket.send({
@@ -147,9 +219,17 @@ export default class Pipeline {
     console.log("tts:", Date.now() - startTime);
   }
 
-  async run(ws: WSContext<WebSocket>, buffer: Buffer<ArrayBufferLike>, persona: string) {
+  async run(
+    ws: WSContext<WebSocket>,
+    buffer: Buffer<ArrayBufferLike>,
+    persona: string,
+    modelName: "claude" | "openai",
+  ) {
     const text = await this.stt(buffer);
-    const chunks = this.llm(text, persona);
+    // const chunks = this.llm(text, persona);
+    // const chunks = this.llmnAnthropic(text, persona);
+    const llm = this.getLLMProvider(modelName);
+    const chunks = llm(text, persona);
     const contextId = crypto.randomUUID();
     const sentenceBoundary = /(?<=[.?!])\s+/;
     let llmBuffer = "";
