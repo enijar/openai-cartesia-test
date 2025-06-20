@@ -7,6 +7,7 @@ const env = z
     OPENAI_KEY: z.string().nonempty(),
     CARTESIA_KEY: z.string().nonempty(),
     ANTHROPIC_KEY: z.string().nonempty(),
+    GEMINI_KEY: z.string().optional(),
     PORT: z.coerce.number().finite().gte(0).lte(65535),
   })
   .parse(dotenv({ path: path.join(import.meta.dirname, "..", ".env") }).parsed);
@@ -15,6 +16,7 @@ const config = {
   openaiKey: env.OPENAI_KEY,
   cartesiaKey: env.CARTESIA_KEY,
   anthropicKey: env.ANTHROPIC_KEY,
+  geminiKey: env.GEMINI_KEY,
   port: env.PORT,
 };
 

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { OpenAI } from "openai";
 import { Anthropic } from "@anthropic-ai/sdk";
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { CartesiaClient } from "@cartesia/cartesia-js";
 import type { WSContext } from "hono/ws";
 import config from "~/config.js";
@@ -15,10 +16,16 @@ type LLMProvider = (
   persona: string,
 ) => AsyncGenerator<{ type: "part" | "final"; data: string }, void, unknown>;
 
+type GeminiMessage = {
+  role: "user" | "model";
+  parts: { text: string }[];
+};
+
 export default class Pipeline {
   private stopped = false;
   private openai = new OpenAI({ apiKey: config.openaiKey });
   private anthropic = new Anthropic({ apiKey: config.anthropicKey });
+  private gemini = new GoogleGenAI({ apiKey: config.geminiKey });
   private cartesia = new CartesiaClient({ apiKey: config.cartesiaKey });
   private audio = new Audio();
 
@@ -38,7 +45,7 @@ export default class Pipeline {
     sampleRate: 16000,
   });
 
-  private input: Array<{ role: "user" | "assistant"; content: string }> = [];
+  private input: Array<{ role: "user" | "assistant" | "model"; content: string }> = [];
 
   constructor(private instructions: string) {}
 
@@ -61,9 +68,11 @@ export default class Pipeline {
       case "claude":
         return this.llmnAnthropic.bind(this);
       case "openai":
-        return this.llm.bind(this);
+        return this.llmOpenAi.bind(this);
+      case "gemini":
+        return this.llmnGemini.bind(this);
       default:
-        return this.llm.bind(this);
+        return this.llmOpenAi.bind(this);
     }
   }
 
@@ -100,7 +109,7 @@ export default class Pipeline {
     });
   }
 
-  async *llm(text: string, persona: string) {
+  async *llmOpenAi(text: string, persona: string) {
     console.log("llm->input", text);
     this.input.push({ role: "user", content: text });
     const startTime = Date.now();
@@ -112,7 +121,15 @@ export default class Pipeline {
         difficulty: "Easy",
         persona,
       }),
-      input: [{ role: "system", content: "" }, ...this.input],
+      input: [
+        { role: "system", content: "" },
+        ...this.input
+          .filter((msg) => msg.role === "user" || msg.role === "assistant")
+          .map((msg) => ({
+            role: msg.role as "user" | "assistant",
+            content: msg.content,
+          })),
+      ],
       stream: true,
     });
 
@@ -186,6 +203,87 @@ export default class Pipeline {
     yield { type: "final", data: this.input[index].content } as const;
   }
 
+  async *llmnGemini(text: string, persona: string) {
+    console.log("llm->input", text);
+    this.input.push({ role: "user", content: text });
+    const startTime = Date.now();
+    const config = {
+      maxOutputTokens: 4096,
+      temperature: 0.35,
+      topP: 1,
+      seed: 0,
+      safetySettings: [
+        {
+          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+      ],
+    };
+
+    const contents: GeminiMessage[] = [
+      {
+        role: "model",
+        parts: [
+          {
+            text: injectVariables(this.instructions, {
+              knowledgeCutoff: "2025-04-14",
+              currentDate: new Date().toISOString().slice(0, 10),
+              difficulty: "Easy",
+              persona,
+            }),
+          },
+        ],
+      },
+      ...this.input.map(
+        (msg) =>
+          ({
+            role: msg.role as "user" | "model",
+            parts: [{ text: msg.content }],
+          }) as GeminiMessage,
+      ),
+    ];
+
+    const req = {
+      model: "gemini-2.0-flash-lite-001", // or gemini-2.5-pro-preview-06-05
+      contents: contents,
+      config: config,
+      systemInstruction: {},
+    };
+
+    const chunks = await this.gemini.models.generateContentStream(req);
+
+    const index = this.input.push({ role: "model", content: "" }) - 1;
+    let parts = 0;
+    for await (const chunk of chunks) {
+      if (this.stopped) break;
+
+      if (parts === 0) {
+        console.log("llm (first chunk):", Date.now() - startTime);
+      }
+
+      if (typeof chunk.text !== "string") continue;
+
+      parts++;
+      yield { type: "part", data: chunk.text } as { type: "part"; data: string };
+      this.input[index].content += chunk.text;
+    }
+    console.log("llm:", Date.now() - startTime);
+    console.log("llm->output", this.input[index].content);
+    yield { type: "final", data: this.input[index].content } as const;
+  }
+
   async *tts(text: string, contextId: string, first: boolean) {
     const startTime = Date.now();
     const response = await this.ttsSocket.send({
@@ -223,7 +321,7 @@ export default class Pipeline {
     ws: WSContext<WebSocket>,
     buffer: Buffer<ArrayBufferLike>,
     persona: string,
-    modelName: "claude" | "openai",
+    modelName: "claude" | "openai" | "gemini",
   ) {
     const text = await this.stt(buffer);
 

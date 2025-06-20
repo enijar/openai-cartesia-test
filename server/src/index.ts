@@ -53,7 +53,7 @@ app.get(
         }
         const startTime = Date.now();
         pipeline.start();
-        const aiModel = "openai"; // "claude" or "openai"
+        const aiModel = "gemini"; // "claude", "openai" or "gemini"
         await pipeline.run(
           ws,
           Buffer.from(event.data as ArrayBufferLike),
