@@ -230,10 +230,7 @@ export default class Pipeline {
           threshold: HarmBlockThreshold.BLOCK_NONE,
         },
       ],
-    };
-
-    const contents: GeminiMessage[] = [
-      {
+      systemInstruction: {
         role: "model",
         parts: [
           {
@@ -246,6 +243,9 @@ export default class Pipeline {
           },
         ],
       },
+    };
+
+    const contents: GeminiMessage[] = [
       ...this.input.map(
         (msg) =>
           ({
@@ -255,14 +255,11 @@ export default class Pipeline {
       ),
     ];
 
-    const req = {
+    const chunks = await this.gemini.models.generateContentStream({
       model: "gemini-2.0-flash-lite-001", // or gemini-2.5-pro-preview-06-05
       contents: contents,
       config: config,
-      systemInstruction: {},
-    };
-
-    const chunks = await this.gemini.models.generateContentStream(req);
+    });
 
     const index = this.input.push({ role: "model", content: "" }) - 1;
     let parts = 0;
